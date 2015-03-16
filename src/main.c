@@ -1,10 +1,9 @@
+// Cold War Simulator 2K15
 // Made by Ben Chapman-Kish up to and on 2015-03-16
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 
-/*#include "time.h"
-#include "stdlib.h"
-#include "unistd.h" ... uint sleep(1);*/
+//#include "unistd.h" ... uint sleep(1);
 
 typedef struct {
  char *action;
@@ -27,11 +26,19 @@ static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end
 static bool player_won, end_game = false;
 static int randnum, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
+//static char s_stats_buffer[128];
 
 
+
+/*static void update_stats_text(void) {
+	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
+	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
+	text_layer_set_text(s_stats_layer, s_stats_buffer);
+}*/
 
 static void post_turn_event(void) {
 	window_stack_remove(s_menu_window, true);
+	//update_stats_text();
 	static char s_stats_buffer[128];
 	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
 	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
@@ -63,9 +70,10 @@ static void post_turn_event(void) {
 			}
 		}
 	
+		//update_stats_text();
 		snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
-		Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
-		text_layer_set_text(s_stats_layer, s_stats_buffer);
+	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
+	text_layer_set_text(s_stats_layer, s_stats_buffer);
 		if (end_game) {
 			window_stack_push(s_end_window, true);
 		}
@@ -211,6 +219,7 @@ static void main_window_load(Window *window) {
 	
 	s_stats_layer = text_layer_create(GRect(5, 75, 144-5, 168-75));
 	layer_add_child(window_layer, text_layer_get_layer(s_stats_layer));
+	//update_stats_text();
 	static char s_stats_buffer[128];
 	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
 	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
