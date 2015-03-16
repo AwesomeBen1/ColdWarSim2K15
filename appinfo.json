@@ -1,0 +1,47 @@
+{
+    "appKeys": {},
+    "capabilities": [
+        ""
+    ],
+    "companyName": "BCK Productions",
+    "longName": "Cold War Simulator 2K15",
+    "projectType": "native",
+    "resources": {
+        "media": [
+            {
+                "file": "images/background.png",
+                "name": "GAME_BACKGROUND",
+                "type": "png"
+            },
+            {
+                "file": "images/you-lose.png",
+                "name": "END_SCREEN_LOSE",
+                "type": "png"
+            },
+            {
+                "file": "images/you-win.png",
+                "name": "END_SCREEN_WIN",
+                "type": "png"
+            },
+            {
+                "file": "images/splash-screen.png",
+                "name": "SPLASH_SCREEN",
+                "type": "png"
+            },
+            {
+                "file": "images/menu-icon.png",
+                "menuIcon": true,
+                "name": "MENU_ICON",
+                "type": "png"
+            }
+        ]
+    },
+    "sdkVersion": "2",
+    "shortName": "Cold War",
+    "uuid": "34202bc0-4691-4464-99fd-24c901f51cf7",
+    "versionCode": 1,
+    "versionLabel": "1.0",
+    "watchapp": {
+        "watchface": false
+    }
+}
