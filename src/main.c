@@ -1,6 +1,6 @@
-// Made by Ben Chapman-Kish up to and on 2015-03-15
+// Made by Ben Chapman-Kish up to and on 2015-03-16
 #include "pebble.h"
-// The possibilities of segfaults and memory overflows are features, by the way
+// The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 
 /*#include "time.h"
 #include "stdlib.h"
@@ -23,18 +23,52 @@ static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_end_window;
 static MenuLayer *s_menu_layer;
 static TextLayer *s_info_layer, *s_stats_layer;
 static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
-static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_bitmap;
-static bool *player_won, *end_game = false;
-static int randnum;
+static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
+static bool player_won, end_game = false;
+static int randnum, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
 
 
 
 static void post_turn_event(void) {
 	window_stack_remove(s_menu_window, true);
-	layer_mark_dirty(text_layer_get_layer(s_stats_layer));
+	static char s_stats_buffer[128];
+	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
+	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
+	text_layer_set_text(s_stats_layer, s_stats_buffer);
 	if (end_game) {
 		window_stack_push(s_end_window, true);
+	} else {
+		if (stats[4] < 1) {
+			end_game = true;
+			player_won = true;
+			stats[4] = 0;
+			text_layer_set_text(s_info_layer, "Tensions are so low you both demilitarize!");
+    } else if (stats[4] > 500) {
+			end_game = true;
+			player_won = false;
+			stats[4] *= 100;
+			if (stats[1] + stats[3] > (stats[0] + stats[2]) * 3) {
+				text_layer_set_text(s_info_layer, "They nuke you and you can't retaliate!");
+			} else {
+				text_layer_set_text(s_info_layer, "They nuke you and you nuke them back.");
+			}
+		} else {
+			for (uint i = 0 ; i < 4 ; i++) {
+				APP_LOG(APP_LOG_LEVEL_DEBUG, "i: %d, item: %d", i, stats[i]);
+				stats[i] += rand() % 10 + 1;
+				if (stats[i] < 1) {
+					stats[i] = 1;
+				}
+			}
+		}
+	
+		snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
+		Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
+		text_layer_set_text(s_stats_layer, s_stats_buffer);
+		if (end_game) {
+			window_stack_push(s_end_window, true);
+		}
 	}
 }
 
@@ -47,10 +81,6 @@ static uint16_t menu_get_num_rows(MenuLayer *menu_layer, uint16_t section_index,
 static int16_t menu_get_header_height(MenuLayer *menu_layer, uint16_t section_index, void *data) {
   return MENU_CELL_BASIC_HEADER_HEIGHT;
 }
-
-/*static int16_t menu_get_cell_height(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
-	return 32;
-}*/
 
 static void menu_draw_header(GContext* ctx, const Layer *cell_layer, uint16_t section_index, void *data) {
 	// Draw title text in the section header
@@ -66,22 +96,22 @@ static void menu_draw_row(GContext* ctx, const Layer *cell_layer, MenuIndex *cel
 static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
   // Use the row to specify which item will receive the select action
 	switch (cell_index->row) {
-		// Nuke them:
 		case 0:
 			stats[4] = (stats[4] + (rand() % 90 + 10)) * (rand() % 990 + 10);
-			*end_game=true;
+			end_game=true;
 			if (stats[0] + stats[2] > (stats[1] + stats[3] * 3) + 10) {
-				text_layer_set_text(s_info_layer, "You destroyed them and you won the cold war!");
-				*player_won=true;
+				text_layer_set_text(s_info_layer, "You destroyed them and won the cold war!");
+				player_won=true;
 			} else {
-				text_layer_set_text(s_info_layer, "You destroy each other! Ever heard of MAD?");
-				*player_won=false;
+				text_layer_set_text(s_info_layer, "You nuke each other! Ever heard of MAD?");
+				player_won=false;
 			}
+			nonukestreak = 0;
 			break;
 		case 1:
 			randnum = rand() % 10;
 			if (randnum < 4) {
-				text_layer_set_text(s_info_layer, "You won the proxy war! You gain more power!");
+				text_layer_set_text(s_info_layer, "You won the proxy war! You gain power!");
 				stats[0] += (rand() % 71 + 10);
 				stats[4] += (rand() % 31 + 10);
 			} else if (randnum < 8) {
@@ -92,11 +122,12 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 				text_layer_set_text(s_info_layer, "The proxy country becomes independant.");
 				stats[4] -= (rand() % 31 + 10);
 			}
+			nonukestreak = 0;
 			break;
 		case 2:
 			randnum = rand() % 10;
 			if (randnum < 4) {
-				text_layer_set_text(s_info_layer, "You collect valuable information from them.");
+				text_layer_set_text(s_info_layer, "You gain valuable intel about them.");
 				stats[2] += (rand() % 71 + 10);
 			} else if (randnum < 8) {
 				text_layer_set_text(s_info_layer, "Your spies are caught and they are angry.");
@@ -106,10 +137,11 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 				stats[3] += (rand() % 71 + 10);
 				stats[4] += (rand() % 31 + 10);
 			}
+			nonukestreak = 0;
 			break;
 		case 3:
 			randnum = rand() % 10;
-			if (stats[4] > 300 || randnum > 6) {
+			if ((stats[4] > 300 || randnum > 6 ) || nonukestreak >= 3) {
 				text_layer_set_text(s_info_layer, "Your plea incites them to make more nukes.");
 				stats[1] += (rand() % 11 + 1);
 				stats[4] += (rand() % 21 + 10);
@@ -119,10 +151,11 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 				stats[1] -= (rand() % 11 + 5);
 				stats[4] -= (rand() % 41 + 20);
 			} else {
-				text_layer_set_text(s_info_layer, "They remove their closest nukes from you.");
+				text_layer_set_text(s_info_layer, "They remove some nukes close to you.");
 				stats[1] -= (rand() % 11 + 1);
 				stats[4] -= (rand() % 21 + 10);
 			}
+			nonukestreak += 1;
 			break;
 	}
 	post_turn_event();
@@ -136,7 +169,9 @@ static void start_game_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-	window_stack_push(s_menu_window, true);
+	if (!end_game) {
+		window_stack_push(s_menu_window, true);
+	}
 }
 
 static void click_to_start(void *context) {
@@ -214,18 +249,20 @@ static void menu_window_unload(Window *window) {
 
 static void end_window_load(Window *window) {
 	Layer *window_layer = window_get_root_layer(window);
-	if (player_won) {
-		s_end_bitmap = gbitmap_create_with_resource(RESOURCE_ID_END_SCREEN_WIN);
-	} else {
-		s_end_bitmap = gbitmap_create_with_resource(RESOURCE_ID_END_SCREEN_LOSE);
-	}
 	s_end_layer = bitmap_layer_create(layer_get_bounds(window_layer));
-	bitmap_layer_set_bitmap(s_end_layer, s_splash_bitmap);
+	s_end_win_bitmap = gbitmap_create_with_resource(RESOURCE_ID_END_SCREEN_WIN);
+	s_end_lose_bitmap = gbitmap_create_with_resource(RESOURCE_ID_END_SCREEN_LOSE);
+	if (player_won) {
+		bitmap_layer_set_bitmap(s_end_layer, s_end_win_bitmap);
+	} else {
+		bitmap_layer_set_bitmap(s_end_layer, s_end_lose_bitmap);
+	}
 	layer_add_child(window_layer, bitmap_layer_get_layer(s_end_layer));
 }
 
 static void end_window_unload(Window *window) {
-	gbitmap_destroy(s_end_bitmap);
+	gbitmap_destroy(s_end_win_bitmap);
+	gbitmap_destroy(s_end_lose_bitmap);
 	bitmap_layer_destroy(s_end_layer);
 }
 
