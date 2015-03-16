@@ -2,9 +2,9 @@
 // Made by Ben Chapman-Kish up to and on 2015-03-16
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
+// Features to add: up button to see game history, down button to repeat last action
 
-//#include "unistd.h" ... uint sleep(1);
-
+#define TIMER_MS 3000
 typedef struct {
  char *action;
  char *description;
@@ -23,59 +23,69 @@ static MenuLayer *s_menu_layer;
 static TextLayer *s_info_layer, *s_stats_layer;
 static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
 static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
+static AppTimer *s_timer;
 static bool player_won, end_game = false;
-static int randnum, nonukestreak = 0;
+static int randnum, end_outcome = 0, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
-//static char s_stats_buffer[128];
+static char s_stats_buffer[128];
 
 
 
-/*static void update_stats_text(void) {
+static void update_stats_text(void) {
 	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
 	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
 	text_layer_set_text(s_stats_layer, s_stats_buffer);
-}*/
+}
+
+static void timer_show_end(void *data) {
+	switch (end_outcome) {
+		case 1:
+			text_layer_set_text(s_info_layer, "Tensions are so low you both demilitarize!");
+			break;
+		case 2:
+			stats[4] *= 100;
+			text_layer_set_text(s_info_layer, "They nuke you and you can't retaliate!");
+			break;
+		case 3:
+			stats[4] *= 100;
+			text_layer_set_text(s_info_layer, "They nuke you and you nuke them back.");
+			break;
+	}
+	window_stack_push(s_end_window, true);
+}
 
 static void post_turn_event(void) {
 	window_stack_remove(s_menu_window, true);
-	//update_stats_text();
-	static char s_stats_buffer[128];
-	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
-	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
-	text_layer_set_text(s_stats_layer, s_stats_buffer);
+	update_stats_text();
+	for (int i = 0 ; i < 4 ; i++) {
+		stats[i] += rand() % 10 + 1;
+		if (stats[i] < 1) {
+			stats[i] = 1;
+		}
+	}
 	if (end_game) {
-		window_stack_push(s_end_window, true);
+		app_timer_register(TIMER_MS, timer_show_end, NULL);
 	} else {
 		if (stats[4] < 1) {
 			end_game = true;
 			player_won = true;
 			stats[4] = 0;
-			text_layer_set_text(s_info_layer, "Tensions are so low you both demilitarize!");
+			update_stats_text();
+			end_outcome = 1;
+			app_timer_register(TIMER_MS, timer_show_end, NULL);
     } else if (stats[4] > 500) {
 			end_game = true;
 			player_won = false;
-			stats[4] *= 100;
+			update_stats_text();
 			if (stats[1] + stats[3] > (stats[0] + stats[2]) * 3) {
-				text_layer_set_text(s_info_layer, "They nuke you and you can't retaliate!");
+				end_outcome = 2;
+				app_timer_register(TIMER_MS, timer_show_end, NULL);
 			} else {
-				text_layer_set_text(s_info_layer, "They nuke you and you nuke them back.");
+				end_outcome = 3;
+				app_timer_register(TIMER_MS, timer_show_end, NULL);
 			}
 		} else {
-			for (uint i = 0 ; i < 4 ; i++) {
-				APP_LOG(APP_LOG_LEVEL_DEBUG, "i: %d, item: %d", i, stats[i]);
-				stats[i] += rand() % 10 + 1;
-				if (stats[i] < 1) {
-					stats[i] = 1;
-				}
-			}
-		}
-	
-		//update_stats_text();
-		snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
-	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
-	text_layer_set_text(s_stats_layer, s_stats_buffer);
-		if (end_game) {
-			window_stack_push(s_end_window, true);
+			update_stats_text();
 		}
 	}
 }
@@ -105,7 +115,7 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
   // Use the row to specify which item will receive the select action
 	switch (cell_index->row) {
 		case 0:
-			stats[4] = (stats[4] + (rand() % 90 + 10)) * (rand() % 990 + 10);
+			stats[4] = (stats[4] + (rand() % 90 + 10)) * (rand() % 990 + 10) + (rand() % 101);
 			end_game=true;
 			if (stats[0] + stats[2] > (stats[1] + stats[3] * 3) + 10) {
 				text_layer_set_text(s_info_layer, "You destroyed them and won the cold war!");
@@ -149,7 +159,7 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 			break;
 		case 3:
 			randnum = rand() % 10;
-			if ((stats[4] > 300 || randnum > 6 ) || nonukestreak >= 3) {
+			if ((stats[4] > 300 || randnum > 7 ) || nonukestreak >= 3) {
 				text_layer_set_text(s_info_layer, "Your plea incites them to make more nukes.");
 				stats[1] += (rand() % 11 + 1);
 				stats[4] += (rand() % 21 + 10);
@@ -163,7 +173,7 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 				stats[1] -= (rand() % 11 + 1);
 				stats[4] -= (rand() % 21 + 10);
 			}
-			nonukestreak += 1;
+			nonukestreak++;
 			break;
 	}
 	post_turn_event();
@@ -171,13 +181,21 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 
 
 
+static void timer_start_game(void *data) {
+  window_stack_remove(s_initial_splash, false);
+	window_stack_push(s_main_window, false);
+}
+
 static void start_game_handler(ClickRecognizerRef recognizer, void *context) {
+	app_timer_cancel(s_timer);
 	window_stack_remove(s_initial_splash, false);
 	window_stack_push(s_main_window, false);
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-	if (!end_game) {
+	if (end_game) {
+		window_stack_push(s_end_window, true);
+	} else {
 		window_stack_push(s_menu_window, true);
 	}
 }
@@ -198,6 +216,7 @@ static void initial_splash_load(Window *window) {
 	s_splash_layer = bitmap_layer_create(layer_get_bounds(window_layer));
 	bitmap_layer_set_bitmap(s_splash_layer, s_splash_bitmap);
 	layer_add_child(window_layer, bitmap_layer_get_layer(s_splash_layer));
+	s_timer = app_timer_register(TIMER_MS, timer_start_game, NULL);
 }
 
 static void initial_splash_unload(Window *window) {
@@ -219,11 +238,7 @@ static void main_window_load(Window *window) {
 	
 	s_stats_layer = text_layer_create(GRect(5, 75, 144-5, 168-75));
 	layer_add_child(window_layer, text_layer_get_layer(s_stats_layer));
-	//update_stats_text();
-	static char s_stats_buffer[128];
-	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
-	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
-	text_layer_set_text(s_stats_layer, s_stats_buffer);
+	update_stats_text();
 }
 
 static void main_window_unload(Window *window) {
