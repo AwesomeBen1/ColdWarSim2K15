@@ -1,5 +1,5 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish up to and on 2015-03-17
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-17
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: up button to see game history, ability to restart the game
@@ -9,14 +9,13 @@ typedef struct {
  char *action;
  char *description;
 } ColdWarOption;
-
 ColdWarOption options[] = {
 	{ .action = "Nuke Them", .description = "What could go wrong?"},
 	{ .action = "Fight Proxy War", .description = "No open hostilities here."},
 	{ .action = "Send Spies", .description = "Get that precious intel."},
 	{ .action = "Ask To Not Nuke", .description = "Please don't hurt us!"}
 };
-// define NUM_OPTIONS = sizeof(options) / sizeof(ColdWarOption)
+#define NUM_OPTIONS sizeof(options) / sizeof(ColdWarOption)
 
 static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_end_window;
 static MenuLayer *s_menu_layer;
@@ -25,7 +24,7 @@ static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
 static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
 static AppTimer *s_timer;
 static bool player_won, end_game = false;
-static int randnum, last_action, turn = 0, end_outcome = 0, nonukestreak = 0;
+static int randnum, last_action, /*turn = 0,*/ end_outcome = 0, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
 static char s_stats_buffer[128];
 
@@ -65,7 +64,7 @@ static void timer_show_end(void *data) {
 }
 
 static void post_turn_event(void) {
-	for (int i = 0 ; i < 4 ; i++) {
+	for (uint i = 0 ; i < NUM_OPTIONS ; i++) {
 		stats[i] += randrange(1, 10); // stats increase by natural progression
 		if (stats[i] < 1) {
 			stats[i] = 1; // stats can't be less than one!
@@ -100,7 +99,7 @@ static void post_turn_event(void) {
 static void take_action(int action) {
 	switch (action) {
 		case 0:
-			// If nukes start getting thrown around, tensions soar	
+			// If nukes start getting thrown around, tensions soar, cuz global destruction imminent, duh
 			stats[4] = (stats[4] + randrange(10, 100)) * randrange(10, 1000) + randrange(0, 100);
 			end_game=true;
 			if (stats[0] + stats[2] > (stats[1] + stats[3] * 3) + 10) {
@@ -108,7 +107,7 @@ static void take_action(int action) {
 				text_layer_set_text(s_info_layer, "You destroyed them and won the cold war!");
 				player_won=true;
 			} else {
-				// This is why the real cold war ended peacefully.
+				// This is why the real cold war ended peacefully. Mutually assured destruction.
 				text_layer_set_text(s_info_layer, "You nuke each other! Ever heard of MAD?");
 				player_won=false;
 			}
@@ -189,7 +188,8 @@ static void take_action(int action) {
 	} else {
 		nonukestreak = 0;
 	}
-	turn++;
+	//turn++;
+	// Turns will be visible soon...
 }
 
 
