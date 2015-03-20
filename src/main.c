@@ -1,32 +1,38 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-17
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-19
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: up button to see game history, ability to restart the game
 
 #define TIMER_MS 3000
-typedef struct {
- char *action;
- char *description;
-} ColdWarOption;
-ColdWarOption options[] = {
-	{ .action = "Nuke Them", .description = "What could go wrong?"},
-	{ .action = "Fight Proxy War", .description = "No open hostilities here."},
-	{ .action = "Send Spies", .description = "Get that precious intel."},
-	{ .action = "Ask To Not Nuke", .description = "Please don't hurt us!"}
-};
-#define NUM_OPTIONS sizeof(options) / sizeof(ColdWarOption)
 
-static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_end_window;
-static MenuLayer *s_menu_layer;
+typedef struct {
+ char *name;
+ char *desc;
+} ColdWarAction;
+ColdWarAction actions[] = {
+	{ .name = "Nuke Them", .desc = "What could go wrong?"},
+	{ .name = "Fight Proxy War", .desc = "No open hostilities here."},
+	{ .name = "Send Spies", .desc = "Get that precious intel."},
+	{ .name = "Ask To Not Nuke", .desc = "Please don't hurt us!"}
+};
+#define NUM_ACTIONS sizeof(actions) / sizeof(ColdWarAction)
+
+typedef struct {
+ int *action;
+ int *outcome;
+} ColdWarHistory;
+ColdWarHistory history[0] = {};
+
+static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_hist_window, *s_end_window;
+static MenuLayer *s_menu_layer, *s_hist_layer;
 static TextLayer *s_info_layer, *s_stats_layer;
 static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
 static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
 static AppTimer *s_timer;
 static bool player_won, end_game = false;
-static int randnum, last_action, /*turn = 0,*/ end_outcome = 0, nonukestreak = 0;
+static int randnum, last_action, turn = 0, end_outcome = 0, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
-static char s_stats_buffer[128];
 
 
 
@@ -36,11 +42,12 @@ static int randrange(int min_val, int max_val) {
 }
 
 static void update_stats_text(void) {
+	static char s_stats_buffer[256];
 	snprintf(s_stats_buffer, sizeof(s_stats_buffer), "Your Power: %d\nTheir Power: %d\n\
 	Your Smarts: %d\nTheir Smarts: %d\nTensions: %d", stats[0],stats[1],stats[2],stats[3],stats[4]);
 	/* I wish there was a more elegant way to pass all items in the stats array.
 	In python you can pass all items in a list by doing *list in a function,
-	But in C, an asterisk before a variable has something to do with a pointer. */
+	But in C, an asterisk before a variable dereferences it. */
 	text_layer_set_text(s_stats_layer, s_stats_buffer);
 }
 
@@ -59,12 +66,14 @@ static void timer_show_end(void *data) {
 			stats[4] = (stats[4] + randrange(10, 100)) * randrange(10, 1000) + randrange(0, 100);
 			text_layer_set_text(s_info_layer, "They nuke you and you nuke them back.");
 			break;
+		default:
+			break;
 	}
 	window_stack_push(s_end_window, true);
 }
 
 static void post_turn_event(void) {
-	for (uint i = 0 ; i < NUM_OPTIONS ; i++) {
+	for (uint i = 0 ; i < NUM_ACTIONS ; ++i) {
 		stats[i] += randrange(1, 10); // stats increase by natural progression
 		if (stats[i] < 1) {
 			stats[i] = 1; // stats can't be less than one!
@@ -96,6 +105,15 @@ static void post_turn_event(void) {
 	}
 }
 
+static void add_to_hist(int action, int outcome) {
+	/*void* newMem = realloc(oldMem, newSize);
+	if(!newMem)
+	{
+    // handle error
+	}
+	oldMem = newMem;*/
+}
+
 static void take_action(int action) {
 	switch (action) {
 		case 0:
@@ -106,10 +124,12 @@ static void take_action(int action) {
 				// Unrealistic for one side to nuke the other and survive, but it's gameplay incentive
 				text_layer_set_text(s_info_layer, "You destroyed them and won the cold war!");
 				player_won=true;
+				add_to_hist(0,0);
 			} else {
 				// This is why the real cold war ended peacefully. Mutually assured destruction.
 				text_layer_set_text(s_info_layer, "You nuke each other! Ever heard of MAD?");
 				player_won=false;
+				add_to_hist(0,1);
 			}
 			break;
 		case 1:
@@ -118,27 +138,33 @@ static void take_action(int action) {
 			if (randnum < 2) {
 				text_layer_set_text(s_info_layer, "The conflict ends with an armistice.");
 				stats[4] += randrange(-10, 10);
+				add_to_hist(1,0);
 			} else if (randnum < 4) {
 				text_layer_set_text(s_info_layer, "The proxy country becomes independant.");
 				stats[4] -= randrange(10, 40);
+				add_to_hist(1,1);
 			} else if (randnum < 8) {
 				text_layer_set_text(s_info_layer, "You won the proxy war! You gain power!");
 				stats[0] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
+				add_to_hist(1,2);
 			} else if (randnum < 12) {
 				text_layer_set_text(s_info_layer, "They won the proxy war and gain power.");
 				stats[1] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
+				add_to_hist(1,3);
 			} else if (randnum < 14) {
 				text_layer_set_text(s_info_layer, "You win the proxy war, but at great cost.");
 				stats[0] += randrange(-10, 10);
 				stats[1] -= randrange(0, 20);
 				stats[4] += randrange(10, 40);
+				add_to_hist(1,4);
 			} else {
-				text_layer_set_text(s_info_layer, "They achieve a pyrrhic victory.");
+				text_layer_set_text(s_info_layer, "They win the proxy war at a great cost.");
 				stats[0] -= randrange(0, 20);
 				stats[1] += randrange(-10, 10);
 				stats[4] += randrange(10, 40);
+				add_to_hist(1,5);
 			}
 			break;
 		case 2:
@@ -147,18 +173,22 @@ static void take_action(int action) {
 			if (randnum < 4) {
 				text_layer_set_text(s_info_layer, "You gain valuable intel about them.");
 				stats[2] += randrange(10, 80);
+				add_to_hist(2,0);
 			} else if (randnum < 8) {
 				text_layer_set_text(s_info_layer, "Your spies are caught and they are angry.");
 				stats[4] += randrange(30, 100);
+				add_to_hist(2,1);
 			} else if (randnum < 10) {
 				text_layer_set_text(s_info_layer, "Your spies kill some of their spies.");
 				stats[3] -= randrange(5, 25);
 				stats[4] += randrange(30, 100);
+				add_to_hist(2,2);
 			} else {
 				// Sort of like what happened with Igor Gouzenko... kind of
 				text_layer_set_text(s_info_layer, "Your spies defect and tell them secrets.");
 				stats[3] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
+				add_to_hist(2,3);
 			}
 			break;
 		case 3:
@@ -167,35 +197,40 @@ static void take_action(int action) {
 				text_layer_set_text(s_info_layer, "Your plea incites them to make more nukes.");
 				stats[1] += randrange(5, 20);
 				stats[4] += randrange(10, 30);
+				add_to_hist(3,0);
 			} else if (stats[4] > 150 || randnum > 6 || (nonukestreak >= 2 && randnum > 4)) {
 				text_layer_set_text(s_info_layer, "They politefully decline your request.");
 				stats[4] += randrange(-5, 5);
+				add_to_hist(3,1);
 			} else if (randnum > 2) {
 				// It's just like the October Crisis!
 				text_layer_set_text(s_info_layer, "You both agree to cut down on the nukes.");
 				stats[0] -= randrange(5, 20);
 				stats[1] -= randrange(5, 20);
 				stats[4] -= randrange(20, 70);
+				add_to_hist(3,2);
 			} else {
 				text_layer_set_text(s_info_layer, "They remove some nukes close to you.");
 				stats[1] -= randrange(5, 20);
 				stats[4] -= randrange(10, 40);
+				add_to_hist(3,3);
 			}
+			break;
+		default:
 			break;
 	}
 	if (action == 3) {
-		nonukestreak++;
+		++nonukestreak;
 	} else {
 		nonukestreak = 0;
 	}
-	//turn++;
-	// Turns will be visible soon...
+	++turn;
 }
 
 
 
 static uint16_t menu_get_num_rows(MenuLayer *menu_layer, uint16_t section_index, void *data) {
-  return 4;
+  return NUM_ACTIONS;
 }
 
 static int16_t menu_get_header_height(MenuLayer *menu_layer, uint16_t section_index, void *data) {
@@ -203,17 +238,17 @@ static int16_t menu_get_header_height(MenuLayer *menu_layer, uint16_t section_in
 }
 
 static void menu_draw_header(GContext* ctx, const Layer *cell_layer, uint16_t section_index, void *data) {
+	static char s_menu_header_buffer[32];
+	snprintf(s_menu_header_buffer, sizeof(s_menu_header_buffer), "Turn %d: What Do?", (turn + 1));
 	// Draw title text in the section header
-	menu_cell_basic_header_draw(ctx, cell_layer, "What do?");
+	menu_cell_basic_header_draw(ctx, cell_layer, s_menu_header_buffer);
 }
 
 static void menu_draw_row(GContext* ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
   // This draws the cell with the appropriate message
-	ColdWarOption *option = &options[cell_index->row];
-	menu_cell_basic_draw(ctx, cell_layer, option->action, option->description, NULL);
+	ColdWarAction *action = &actions[cell_index->row];
+	menu_cell_basic_draw(ctx, cell_layer, action->name, action->desc, NULL);
 }
-
-
 
 static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
   // Use the row to specify which item will receive the select action
@@ -223,6 +258,24 @@ static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 	window_stack_remove(s_menu_window, true);
 	post_turn_event();
 }
+
+
+
+static uint16_t hist_get_num_rows(MenuLayer *menu_layer, uint16_t section_index, void *data) {
+  return sizeof(history) / sizeof(ColdWarHistory);
+}
+
+static void hist_draw_row(GContext* ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
+  // This draws the cell with the appropriate message
+	ColdWarHistory *histitem = &history[cell_index->row];
+	menu_cell_basic_draw(ctx, cell_layer, histitem->action, histitem->outcome, NULL);
+}
+
+/*static void hist_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
+  
+}*/
+
+
 
 static void timer_start_game(void *data) {
   window_stack_remove(s_initial_splash, false);
@@ -315,7 +368,7 @@ static void menu_window_load(Window *window) {
     .get_header_height = menu_get_header_height,
     .draw_header = menu_draw_header,
     .draw_row = menu_draw_row,
-    .select_click = menu_select,
+    .select_click = menu_select
   });
 
   // Bind the menu layer's click config provider to the window for interactivity
@@ -324,7 +377,25 @@ static void menu_window_load(Window *window) {
 }
 
 static void menu_window_unload(Window *window) {
-  menu_layer_destroy(s_menu_layer);
+	menu_layer_destroy(s_menu_layer);
+}
+
+static void hist_window_load(Window *window) {
+  Layer *window_layer = window_get_root_layer(window);
+  s_hist_layer = menu_layer_create(layer_get_frame(window_layer));
+  
+	menu_layer_set_callbacks(s_hist_layer, NULL, (MenuLayerCallbacks){
+    .get_num_rows = hist_get_num_rows,
+    .draw_row = hist_draw_row,
+    //.select_click = hist_select
+  });
+
+	menu_layer_set_click_config_onto_window(s_hist_layer, window);
+	layer_add_child(window_layer, menu_layer_get_layer(s_hist_layer));
+}
+
+static void hist_window_unload(Window *window) {
+  menu_layer_destroy(s_hist_layer);
 }
 
 static void end_window_load(Window *window) {
@@ -371,6 +442,12 @@ static void init() {
     .unload = menu_window_unload,
   });
 	
+	s_hist_window = window_create();
+  window_set_window_handlers(s_hist_window, (WindowHandlers) {
+    .load = hist_window_load,
+    .unload = hist_window_unload,
+  });
+	
 	s_end_window = window_create();
   window_set_window_handlers(s_end_window, (WindowHandlers) {
     .load = end_window_load,
@@ -384,6 +461,7 @@ static void deinit() {
 	window_destroy(s_initial_splash);
 	window_destroy(s_main_window);
 	window_destroy(s_menu_window);
+	window_destroy(s_hist_window);
 	window_destroy(s_end_window);
 }
 
