@@ -2,7 +2,7 @@
 // Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-23
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
-// Features to add: up button to see game history, ability to restart the game
+// Features to add: Showing the instructions the first time the game is run, new action: "produce nukes"
 
 #define TIMER_MS 2200
 
@@ -525,7 +525,9 @@ static void help_window_load(Window *window) {
 	Every action has outcomes, both good and bad, that are based on luck as well \
 	as the \"stats\": the values visible on the main screen. \n\n\
 	From the main screen, you can also press up to view the turn history \
-	and press down to repeat the last action you took.\n\n\
+	and press down to repeat the last action you took. \
+	In the history screen, press the select button to switch between \
+	viewing the outcome of an action and what turn it happened on.\n\n\
 	Good luck and have fun!\n\n\
 	© Ben Chapman-Kish 2015");
 	text_layer_set_font(s_help_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
