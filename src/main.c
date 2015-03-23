@@ -1,10 +1,10 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-19
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-23
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: up button to see game history, ability to restart the game
 
-#define TIMER_MS 3000
+#define TIMER_MS 2200
 
 typedef struct {
  char *name;
@@ -17,22 +17,50 @@ ColdWarAction actions[] = {
 	{ .name = "Ask To Not Nuke", .desc = "Please don't hurt us!"}
 };
 #define NUM_ACTIONS sizeof(actions) / sizeof(ColdWarAction)
+#define NUM_OUTCOMES 16
+#define NUM_OPTIONS 2
+#define NUM_SECTIONS 2
 
+// Ugly, but how else can I do it?
+static char *histactions[] = {"Nuked Them", "Fought Proxy War", "Sent Spies", "Asked No Nukes"};
+static char *histoutcomes[NUM_ACTIONS][NUM_OUTCOMES] = {
+	{ "Defeated them",
+	"They nuked you back" },
+	{ "Armistice signed",
+	"Became independant",
+	"You won",
+	"They won",
+	"Your pyhrric victory",
+	"Their pyhhric victory" },
+	{ "You gained intel",
+	"Spies were caught",
+	"Killed their spies",
+	"Spies defected" },
+	{ "You angered them",
+	"They declined",
+	"You compromised",
+	"They complied" }
+};
+
+/* After four days of work, I finally made the history array work.
+I have no idea why it's so hard to just make an array that can be resized... */
 typedef struct {
- int *action;
- int *outcome;
+ int action;
+ int outcome;
 } ColdWarHistory;
-ColdWarHistory history[0] = {};
-
-static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_hist_window, *s_end_window;
+static ColdWarHistory *history;
+static bool hist_list_exists = false;
+static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_hist_window, *s_help_window, *s_end_window;
 static MenuLayer *s_menu_layer, *s_hist_layer;
-static TextLayer *s_info_layer, *s_stats_layer;
+static TextLayer *s_info_layer, *s_stats_layer, *s_help_layer;
+static ScrollLayer *s_scroll_layer;
 static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
 static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
 static AppTimer *s_timer;
-static bool player_won, end_game = false;
-static int randnum, last_action, turn = 0, end_outcome = 0, nonukestreak = 0;
+static bool player_won, hist_show_turns = false, end_game = false;
+static int randnum, last_action = -1, turn = 0, end_outcome = 0, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
+static char s_menu_header_buffer[32], happened_on[16];
 
 
 
@@ -106,12 +134,24 @@ static void post_turn_event(void) {
 }
 
 static void add_to_hist(int action, int outcome) {
-	/*void* newMem = realloc(oldMem, newSize);
-	if(!newMem)
-	{
-    // handle error
+	/* The history functionality took a couple days of intense researching and trial-and-error
+	to get working with dynamic memory allocation and string arrays, but mostly the former. */
+	if (hist_list_exists) {
+		void* temp = realloc(history, (turn + 1) * sizeof(ColdWarHistory));
+		if(!temp)
+		{
+    	free(history);
+			APP_LOG(APP_LOG_LEVEL_ERROR, "Error: Can't allocate memory for history array.");
+			return;
+		}
+		history = temp;
+	} else {
+		history = (ColdWarHistory *) malloc(sizeof(ColdWarHistory));
+		hist_list_exists = true;
 	}
-	oldMem = newMem;*/
+	history[turn].action = action;
+	history[turn].outcome = outcome;
+	APP_LOG(APP_LOG_LEVEL_DEBUG, "Adding to history: %d, %d", action, outcome);
 }
 
 static void take_action(int action) {
@@ -119,16 +159,17 @@ static void take_action(int action) {
 		case 0:
 			// If nukes start getting thrown around, tensions soar, cuz global destruction imminent, duh
 			stats[4] = (stats[4] + randrange(10, 100)) * randrange(10, 1000) + randrange(0, 100);
-			end_game=true;
+			end_game = true;
+			end_outcome = 0;
 			if (stats[0] + stats[2] > (stats[1] + stats[3] * 3) + 10) {
 				// Unrealistic for one side to nuke the other and survive, but it's gameplay incentive
 				text_layer_set_text(s_info_layer, "You destroyed them and won the cold war!");
-				player_won=true;
+				player_won = true;
 				add_to_hist(0,0);
 			} else {
 				// This is why the real cold war ended peacefully. Mutually assured destruction.
 				text_layer_set_text(s_info_layer, "You nuke each other! Ever heard of MAD?");
-				player_won=false;
+				player_won = false;
 				add_to_hist(0,1);
 			}
 			break;
@@ -229,8 +270,21 @@ static void take_action(int action) {
 
 
 
+static uint16_t menu_get_num_sections(MenuLayer *menu_layer, void *data) {
+  if (end_game) {
+		return NUM_SECTIONS - 1;
+	} else {
+		return NUM_SECTIONS;
+	}
+}
+
 static uint16_t menu_get_num_rows(MenuLayer *menu_layer, uint16_t section_index, void *data) {
-  return NUM_ACTIONS;
+	if (end_game || section_index == 1) {
+		return NUM_OPTIONS;
+	} else {
+		return NUM_ACTIONS;
+	}
+	return 0;
 }
 
 static int16_t menu_get_header_height(MenuLayer *menu_layer, uint16_t section_index, void *data) {
@@ -238,42 +292,92 @@ static int16_t menu_get_header_height(MenuLayer *menu_layer, uint16_t section_in
 }
 
 static void menu_draw_header(GContext* ctx, const Layer *cell_layer, uint16_t section_index, void *data) {
-	static char s_menu_header_buffer[32];
-	snprintf(s_menu_header_buffer, sizeof(s_menu_header_buffer), "Turn %d: What Do?", (turn + 1));
-	// Draw title text in the section header
-	menu_cell_basic_header_draw(ctx, cell_layer, s_menu_header_buffer);
+	if (end_game) {
+		// App options at the end of the game
+		snprintf(s_menu_header_buffer, sizeof(s_menu_header_buffer), "Turn %d: Game Over!", turn);
+		menu_cell_basic_header_draw(ctx, cell_layer, s_menu_header_buffer);
+	} else if (section_index == 1) {
+		// App options
+		menu_cell_basic_header_draw(ctx, cell_layer, "Other Stuffs");
+	} else {
+		// Actions to take
+		snprintf(s_menu_header_buffer, sizeof(s_menu_header_buffer), "Turn %d: What Do?", (turn + 1));
+		menu_cell_basic_header_draw(ctx, cell_layer, s_menu_header_buffer);
+	}
 }
 
 static void menu_draw_row(GContext* ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
   // This draws the cell with the appropriate message
-	ColdWarAction *action = &actions[cell_index->row];
-	menu_cell_basic_draw(ctx, cell_layer, action->name, action->desc, NULL);
+	if (end_game || cell_index->section == 1) {
+		switch (cell_index->row) {
+      case 0:
+        menu_cell_basic_draw(ctx, cell_layer, "Play New Game", NULL, NULL);
+        break;
+			case 1:
+        menu_cell_basic_draw(ctx, cell_layer, "Instructions", NULL, NULL);
+        break;
+    }
+	} else {
+		ColdWarAction *action = &actions[cell_index->row];
+		menu_cell_basic_draw(ctx, cell_layer, action->name, action->desc, NULL);
+	}
 }
 
 static void menu_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
-  // Use the row to specify which item will receive the select action
-	last_action = cell_index->row;
-	take_action(last_action);
-	update_stats_text();
-	window_stack_remove(s_menu_window, true);
-	post_turn_event();
+	if (end_game || cell_index->section == 1) {
+		switch (cell_index->row) {
+			case 0:
+				free(history);
+				end_game = hist_list_exists = false;
+				last_action = -1;
+				turn = end_outcome = nonukestreak = 0;
+				stats[0] = stats[1] = stats[2] = stats[3] = 1;
+				stats[4] = 100;
+				update_stats_text();
+				text_layer_set_text(s_info_layer, "Uh oh, it looks like you're in a cold war.");
+				window_stack_remove(s_menu_window, true);
+				break;
+			case 1:
+				window_stack_push(s_help_window, true);
+				break;
+		}
+	} else {
+		// Use the row to specify which item will receive the select action	
+			last_action = cell_index->row;
+			take_action(last_action);
+			update_stats_text();
+			window_stack_remove(s_menu_window, true);
+			post_turn_event();
+	}
 }
 
 
 
+static uint16_t hist_get_num_sections(MenuLayer *menu_layer, void *data) {
+  return 1;
+}
+
 static uint16_t hist_get_num_rows(MenuLayer *menu_layer, uint16_t section_index, void *data) {
-  return sizeof(history) / sizeof(ColdWarHistory);
+	return turn;
 }
 
 static void hist_draw_row(GContext* ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
-  // This draws the cell with the appropriate message
-	ColdWarHistory *histitem = &history[cell_index->row];
-	menu_cell_basic_draw(ctx, cell_layer, histitem->action, histitem->outcome, NULL);
+	int histindex = turn - cell_index->row - 1;
+	ColdWarHistory *histitem = &history[histindex];
+	char *action = histactions[histitem->action];
+	if (hist_show_turns) {
+		snprintf(happened_on, sizeof(happened_on), "Turn %d", (turn - cell_index->row));
+		menu_cell_basic_draw(ctx, cell_layer, action, happened_on, NULL);
+	} else {
+		char *outcome = histoutcomes[histitem->action][histitem->outcome];
+		menu_cell_basic_draw(ctx, cell_layer, action, outcome, NULL);
+	}
 }
 
-/*static void hist_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
-  
-}*/
+static void hist_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
+	hist_show_turns = !hist_show_turns;
+	layer_mark_dirty(menu_layer_get_layer(menu_layer));
+}
 
 
 
@@ -291,15 +395,17 @@ static void start_game_handler(ClickRecognizerRef recognizer, void *context) {
 
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-	if (end_game) {
-		window_stack_push(s_end_window, true);
-	} else {
-		window_stack_push(s_menu_window, true);
+	window_stack_push(s_menu_window, true);
+}
+
+static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
+	if (last_action >= 0) {
+		window_stack_push(s_hist_window, true);
 	}
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-	if (!end_game && last_action) {
+	if (!end_game && (last_action >= 0)) {
 		take_action(last_action);
 		update_stats_text();
 		post_turn_event();
@@ -314,6 +420,7 @@ static void click_to_start(void *context) {
 
 static void click_config_provider(void *context) {
 	window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
+	window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
 	window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
 };
 
@@ -364,7 +471,8 @@ static void menu_window_load(Window *window) {
   // Create the menu layer
   s_menu_layer = menu_layer_create(layer_get_frame(window_layer));
   menu_layer_set_callbacks(s_menu_layer, NULL, (MenuLayerCallbacks){
-    .get_num_rows = menu_get_num_rows,
+		.get_num_sections = menu_get_num_sections,
+		.get_num_rows = menu_get_num_rows,
     .get_header_height = menu_get_header_height,
     .draw_header = menu_draw_header,
     .draw_row = menu_draw_row,
@@ -383,19 +491,58 @@ static void menu_window_unload(Window *window) {
 static void hist_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   s_hist_layer = menu_layer_create(layer_get_frame(window_layer));
-  
 	menu_layer_set_callbacks(s_hist_layer, NULL, (MenuLayerCallbacks){
-    .get_num_rows = hist_get_num_rows,
+		.get_num_sections = hist_get_num_sections,
+		.get_num_rows = hist_get_num_rows,
     .draw_row = hist_draw_row,
-    //.select_click = hist_select
+		.select_click = hist_select
   });
-
 	menu_layer_set_click_config_onto_window(s_hist_layer, window);
 	layer_add_child(window_layer, menu_layer_get_layer(s_hist_layer));
 }
 
 static void hist_window_unload(Window *window) {
   menu_layer_destroy(s_hist_layer);
+}
+
+static void help_window_load(Window *window) {
+  Layer *window_layer = window_get_root_layer(window);
+
+	// Initialize the scroll layer
+  s_scroll_layer = scroll_layer_create(layer_get_frame(window_layer));
+  // This binds the scroll layer to the window so that up and down map to scrolling
+  // You may use scroll_layer_set_callbacks to add or override interactivity
+  scroll_layer_set_click_config_onto_window(s_scroll_layer, window);
+	
+	// Initialize the text layer
+	s_help_layer = text_layer_create(GRect(4, 0, 144-8, 2000));
+	text_layer_set_text(s_help_layer, "Welcome to Cold War Simulator 2K15!\n\n\
+	Your objective is to defeat your rival faction, referred to in this game \
+	as \"them\", either through force or peacefully.\n\n\
+	To defeat them by force, nuke them when your power and smarts is at least thrice \
+	their power and smarts. The conflict will also end peacefully when the tensions reach zero.\n\n\
+	From the main screen, you can press select to view your actions and options. \
+	Every action has outcomes, both good and bad, that are based on luck as well \
+	as the \"stats\": the values visible on the main screen. \n\n\
+	From the main screen, you can also press up to view the turn history \
+	and press down to repeat the last action you took.\n\n\
+	Good luck and have fun!\n\n\
+	© Ben Chapman-Kish 2015");
+	text_layer_set_font(s_help_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+	
+	// Trim text layer and scroll content to fit text box
+	GSize max_size = text_layer_get_content_size(s_help_layer);
+  text_layer_set_size(s_help_layer, GSize(max_size.w, max_size.h + 4));
+  scroll_layer_set_content_size(s_scroll_layer, GSize(144, max_size.h + 8));
+	// Add the layers for display
+	scroll_layer_add_child(s_scroll_layer, text_layer_get_layer(s_help_layer));
+
+  layer_add_child(window_layer, scroll_layer_get_layer(s_scroll_layer));
+}
+
+static void help_window_unload(Window *window) {
+	text_layer_destroy(s_help_layer);
+  scroll_layer_destroy(s_scroll_layer);
 }
 
 static void end_window_load(Window *window) {
@@ -448,6 +595,12 @@ static void init() {
     .unload = hist_window_unload,
   });
 	
+	s_help_window = window_create();
+  window_set_window_handlers(s_help_window, (WindowHandlers) {
+    .load = help_window_load,
+    .unload = help_window_unload,
+  });
+	
 	s_end_window = window_create();
   window_set_window_handlers(s_end_window, (WindowHandlers) {
     .load = end_window_load,
@@ -458,15 +611,19 @@ static void init() {
 }
 
 static void deinit() {
+	if (hist_list_exists) {
+		free(history);
+	}
 	window_destroy(s_initial_splash);
 	window_destroy(s_main_window);
 	window_destroy(s_menu_window);
 	window_destroy(s_hist_window);
+	window_destroy(s_help_window);
 	window_destroy(s_end_window);
 }
 
 int main(void) {
-  init();
+	init();
   app_event_loop();
   deinit();
 }
