@@ -1,5 +1,5 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-28
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-29
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: None! All my original ideas are now incorporated into the app.
@@ -443,10 +443,6 @@ static void hist_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 	layer_mark_dirty(menu_layer_get_layer(menu_layer));
 }
 
-/*static void close_help(ClickRecognizerRef recognizer, void *context) {
-	window_stack_remove(s_help_window, true);
-}*/
-
 
 
 static void timer_start_game(void *data) {
@@ -603,7 +599,7 @@ static void help_window_load(Window *window) {
 	// Initialize the text layer
 	s_help_title_layer = text_layer_create(GRect(4, 0, 144-8, 100));
 	text_layer_set_text(s_help_title_layer, "Welcome to Cold War Simulator 2K15!");
-	text_layer_set_font(s_help_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
+	text_layer_set_font(s_help_title_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
 	s_help_layer = text_layer_create(GRect(4, 40, 144-8, 2000));
 	text_layer_set_text(s_help_layer, "Your objective is to defeat your rival faction, \
 	referred to in this game as \"them\", either through force or peacefully.\n\n\
