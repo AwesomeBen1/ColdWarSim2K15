@@ -1,10 +1,11 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-23
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-28
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
-// Features to add: Showing the instructions the first time the game is run, new action: "produce nukes"
+// Features to add: None! All my original ideas are now incorporated into the app.
 
 #define TIMER_MS 2200
+#define FIRST_RUN_KEY 1
 
 typedef struct {
  char *name;
@@ -14,17 +15,20 @@ ColdWarAction actions[] = {
 	{ .name = "Nuke Them", .desc = "What could go wrong?"},
 	{ .name = "Fight Proxy War", .desc = "No open hostilities here."},
 	{ .name = "Send Spies", .desc = "Get that precious intel."},
-	{ .name = "Ask To Not Nuke", .desc = "Please don't hurt us!"}
+	{ .name = "Ask To Not Nuke", .desc = "Please don't hurt us!"},
+	{ .name = "Produce Nukes", .desc = "I have the power!"},
+	{ .name = "Push Research", .desc = "Conscript smart people."}
 };
 #define NUM_ACTIONS sizeof(actions) / sizeof(ColdWarAction)
-#define NUM_OUTCOMES 16
+#define NUM_OUTCOMES 23
 #define NUM_OPTIONS 2
 #define NUM_SECTIONS 2
 
 // Ugly, but how else can I do it?
-static char *histactions[] = {"Nuked Them", "Fought Proxy War", "Sent Spies", "Asked No Nukes"};
+static char *histactions[] = {"Nuked Them", "Fought Proxy War", \
+	"Sent Spies", "Asked No Nukes", "Produced Nukes", "Researched"};
 static char *histoutcomes[NUM_ACTIONS][NUM_OUTCOMES] = {
-	{ "Defeated them",
+	{ "You defeated them",
 	"They nuked you back" },
 	{ "Armistice signed",
 	"Became independant",
@@ -35,11 +39,18 @@ static char *histoutcomes[NUM_ACTIONS][NUM_OUTCOMES] = {
 	{ "You gained intel",
 	"Spies were caught",
 	"Killed their spies",
+	"Spies were killed",
 	"Spies defected" },
 	{ "You angered them",
 	"They declined",
 	"You compromised",
-	"They complied" }
+	"They complied" },
+	{ "They didn't notice",
+	"They made nukes too",
+	"You were blockaded" },
+	{ "Caught their spies",
+	"No notable results",
+	"Discovery made" }
 };
 
 /* After four days of work, I finally made the history array work.
@@ -52,7 +63,7 @@ static ColdWarHistory *history;
 static bool hist_list_exists = false;
 static Window *s_initial_splash, *s_main_window, *s_menu_window, *s_hist_window, *s_help_window, *s_end_window;
 static MenuLayer *s_menu_layer, *s_hist_layer;
-static TextLayer *s_info_layer, *s_stats_layer, *s_help_layer;
+static TextLayer *s_info_layer, *s_stats_layer, *s_help_title_layer, *s_help_layer;
 static ScrollLayer *s_scroll_layer;
 static BitmapLayer *s_splash_layer, *s_background_layer, *s_end_layer;
 static GBitmap *s_splash_bitmap, *s_background_bitmap, *s_end_win_bitmap, *s_end_lose_bitmap;
@@ -60,6 +71,7 @@ static AppTimer *s_timer;
 static bool player_won, hist_show_turns = false, end_game = false;
 static int randnum, last_action = -1, turn = 0, end_outcome = 0, nonukestreak = 0;
 static int stats[5] = {1,1,1,1,100}; // Your power, their power, your smarts, their smarts, tensions
+static int actionstreak[2] = {0,0};
 static char s_menu_header_buffer[32], happened_on[16];
 
 
@@ -154,6 +166,13 @@ static void add_to_hist(int action, int outcome) {
 	APP_LOG(APP_LOG_LEVEL_DEBUG, "Adding to history: %d, %d", action, outcome);
 }
 
+static uint8_t actionrepeats(int action) {
+	if (actionstreak[0] == action) {
+		return actionstreak[1];
+	}
+	return 0;
+}
+
 static void take_action(int action) {
 	switch (action) {
 		case 0:
@@ -174,27 +193,27 @@ static void take_action(int action) {
 			}
 			break;
 		case 1:
-			randnum = rand() % 16;
+			randnum = rand() % 8;
 			// So many proxy wars in the cold war and they all ended in different ways...
-			if (randnum < 2) {
+			if (randnum < 1) {
 				text_layer_set_text(s_info_layer, "The conflict ends with an armistice.");
 				stats[4] += randrange(-10, 10);
 				add_to_hist(1,0);
-			} else if (randnum < 4) {
+			} else if (randnum < 2) {
 				text_layer_set_text(s_info_layer, "The proxy country becomes independant.");
 				stats[4] -= randrange(10, 40);
 				add_to_hist(1,1);
-			} else if (randnum < 8) {
+			} else if (randnum < 4) {
 				text_layer_set_text(s_info_layer, "You won the proxy war! You gain power!");
 				stats[0] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
 				add_to_hist(1,2);
-			} else if (randnum < 12) {
+			} else if (randnum < 6) {
 				text_layer_set_text(s_info_layer, "They won the proxy war and gain power.");
 				stats[1] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
 				add_to_hist(1,3);
-			} else if (randnum < 14) {
+			} else if (randnum < 7) {
 				text_layer_set_text(s_info_layer, "You win the proxy war, but at great cost.");
 				stats[0] += randrange(-10, 10);
 				stats[1] -= randrange(0, 20);
@@ -209,41 +228,46 @@ static void take_action(int action) {
 			}
 			break;
 		case 2:
-			randnum = rand() % 12;
+			randnum = rand() % 8;
 			// These outcomes are reminiscent of CIA vs. KGB fiction
-			if (randnum < 4) {
+			if (randnum < 1 || (randnum < 3 && actionrepeats(2) <= 3)) {
 				text_layer_set_text(s_info_layer, "You gain valuable intel about them.");
 				stats[2] += randrange(10, 80);
 				add_to_hist(2,0);
-			} else if (randnum < 8) {
+			} else if (randnum < 5) {
 				text_layer_set_text(s_info_layer, "Your spies are caught and they are angry.");
 				stats[4] += randrange(30, 100);
 				add_to_hist(2,1);
-			} else if (randnum < 10) {
+			} else if (randnum < 6) {
 				text_layer_set_text(s_info_layer, "Your spies kill some of their spies.");
 				stats[3] -= randrange(5, 25);
 				stats[4] += randrange(30, 100);
 				add_to_hist(2,2);
+			} else if (randnum < 7) {
+				text_layer_set_text(s_info_layer, "Your spies are assassinated on the job.");
+				stats[2] -= randrange(10, 25);
+				stats[4] += randrange(20, 80);
+				add_to_hist(2,3);
 			} else {
 				// Sort of like what happened with Igor Gouzenko... kind of
 				text_layer_set_text(s_info_layer, "Your spies defect and tell them secrets.");
 				stats[3] += randrange(10, 80);
 				stats[4] += randrange(10, 40);
-				add_to_hist(2,3);
+				add_to_hist(2,4);
 			}
 			break;
 		case 3:
-			randnum = rand() % 12;
-			if (stats[4] > 300 || randnum > 8 || nonukestreak >= 4) {
+			randnum = rand() % 6;
+			if (stats[4] > 300 || randnum > 4 || actionrepeats(3) >= 4) {
 				text_layer_set_text(s_info_layer, "Your plea incites them to make more nukes.");
 				stats[1] += randrange(5, 20);
 				stats[4] += randrange(10, 30);
 				add_to_hist(3,0);
-			} else if (stats[4] > 150 || randnum > 6 || (nonukestreak >= 2 && randnum > 4)) {
+			} else if (stats[4] > 150 || randnum > 3 || (nonukestreak >= 2 && randnum > 2)) {
 				text_layer_set_text(s_info_layer, "They politefully decline your request.");
 				stats[4] += randrange(-5, 5);
 				add_to_hist(3,1);
-			} else if (randnum > 2) {
+			} else if (randnum > 1) {
 				// It's just like the October Crisis!
 				text_layer_set_text(s_info_layer, "You both agree to cut down on the nukes.");
 				stats[0] -= randrange(5, 20);
@@ -257,13 +281,53 @@ static void take_action(int action) {
 				add_to_hist(3,3);
 			}
 			break;
+		case 4:
+			randnum = rand() % 10;
+			// Nuclear stockpiles increased quickly in the cold war	
+			if (randnum > 6 || (stats[4] < 300 && randnum > 5)) {
+				text_layer_set_text(s_info_layer, "You secretly add nukes to your arsenal.");
+				stats[0] += randrange(20, 60);
+				add_to_hist(4,0);
+			} else if (randnum > 2) {
+				text_layer_set_text(s_info_layer, "They realize and make nukes themselves.");
+				stats[0] += randrange(20, 60);
+				stats[1] += randrange(20, 60);
+				stats[4] += randrange(20, 60);
+				add_to_hist(4,1);
+			} else {
+				// Also like the October Crisis
+				text_layer_set_text(s_info_layer, "They blockade your nuclear shipments.");
+				stats[0] += randrange(-5, 5);
+				stats[4] += randrange(30, 100);
+				add_to_hist(4,2);
+			}
+			break;
+		case 5:
+		randnum = rand() % 4;
+			// How nuclear weapons were even discovered in the first place
+			if (randnum < 1 || (randnum < 2 && stats[2] > 150)) {
+				text_layer_set_text(s_info_layer, "Spies are caught in your research team!");
+				stats[2] += randrange(20, 60);
+				stats[3] += randrange(20, 60);
+				stats[4] += randrange(30, 80);
+				add_to_hist(5,0);
+			} else if (randnum < 3) {
+				text_layer_set_text(s_info_layer, "Nothing of importance is discovered.");
+				add_to_hist(5,1);
+			} else {
+				text_layer_set_text(s_info_layer, "Your research finds a useful discovery.");
+				stats[2] += randrange(20, 60);
+				add_to_hist(5,2);
+			}
+			break;
 		default:
 			break;
 	}
-	if (action == 3) {
-		++nonukestreak;
+	if (actionstreak[0] == last_action) {
+		++actionstreak[1];
 	} else {
-		nonukestreak = 0;
+		actionstreak[0] = last_action;
+		actionstreak[1] = 1;
 	}
 	++turn;
 }
@@ -379,11 +443,21 @@ static void hist_select(MenuLayer *menu_layer, MenuIndex *cell_index, void *data
 	layer_mark_dirty(menu_layer_get_layer(menu_layer));
 }
 
+/*static void close_help(ClickRecognizerRef recognizer, void *context) {
+	window_stack_remove(s_help_window, true);
+}*/
+
 
 
 static void timer_start_game(void *data) {
   window_stack_remove(s_initial_splash, false);
 	window_stack_push(s_main_window, false);
+	bool firstrun = persist_exists(FIRST_RUN_KEY) ? persist_read_bool(FIRST_RUN_KEY) : true;
+	if (firstrun) {
+		APP_LOG(APP_LOG_LEVEL_DEBUG, "First time running app, creating persistent storage bool");
+		persist_write_bool(FIRST_RUN_KEY, false);
+		window_stack_push(s_help_window, true);
+	}
 }
 
 static void start_game_handler(ClickRecognizerRef recognizer, void *context) {
@@ -412,6 +486,10 @@ static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
 	}
 }
 
+static void close_help_handler(ClickRecognizerRef recognizer, void *context) {
+	window_stack_remove(s_help_window, true);
+}
+
 
 
 static void click_to_start(void *context) {
@@ -422,6 +500,10 @@ static void click_config_provider(void *context) {
 	window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
 	window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
 	window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
+};
+
+static void help_click_config_provider(void *context) {
+	window_single_click_subscribe(BUTTON_ID_SELECT, close_help_handler);
 };
 
 
@@ -513,12 +595,18 @@ static void help_window_load(Window *window) {
   // This binds the scroll layer to the window so that up and down map to scrolling
   // You may use scroll_layer_set_callbacks to add or override interactivity
   scroll_layer_set_click_config_onto_window(s_scroll_layer, window);
+	// Got this to work thanks to http://redd.it/26t34c
+	scroll_layer_set_callbacks(s_scroll_layer, (ScrollLayerCallbacks){
+    .click_config_provider = help_click_config_provider
+  });
 	
 	// Initialize the text layer
-	s_help_layer = text_layer_create(GRect(4, 0, 144-8, 2000));
-	text_layer_set_text(s_help_layer, "Welcome to Cold War Simulator 2K15!\n\n\
-	Your objective is to defeat your rival faction, referred to in this game \
-	as \"them\", either through force or peacefully.\n\n\
+	s_help_title_layer = text_layer_create(GRect(4, 0, 144-8, 100));
+	text_layer_set_text(s_help_title_layer, "Welcome to Cold War Simulator 2K15!");
+	text_layer_set_font(s_help_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
+	s_help_layer = text_layer_create(GRect(4, 40, 144-8, 2000));
+	text_layer_set_text(s_help_layer, "Your objective is to defeat your rival faction, \
+	referred to in this game as \"them\", either through force or peacefully.\n\n\
 	To defeat them by force, nuke them when your power and smarts is at least thrice \
 	their power and smarts. The conflict will also end peacefully when the tensions reach zero.\n\n\
 	From the main screen, you can press select to view your actions and options. \
@@ -533,10 +621,13 @@ static void help_window_load(Window *window) {
 	text_layer_set_font(s_help_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
 	
 	// Trim text layer and scroll content to fit text box
-	GSize max_size = text_layer_get_content_size(s_help_layer);
-  text_layer_set_size(s_help_layer, GSize(max_size.w, max_size.h + 4));
-  scroll_layer_set_content_size(s_scroll_layer, GSize(144, max_size.h + 8));
+	GSize max_size_1 = text_layer_get_content_size(s_help_layer);
+	GSize max_size_2 = text_layer_get_content_size(s_help_title_layer);
+  text_layer_set_size(s_help_layer, GSize(max_size_1.w, max_size_1.h + 4));
+	text_layer_set_size(s_help_title_layer, GSize(max_size_2.w, max_size_2.h + 4));
+  scroll_layer_set_content_size(s_scroll_layer, GSize(144, max_size_1.h + max_size_2.h + 18));
 	// Add the layers for display
+	scroll_layer_add_child(s_scroll_layer, text_layer_get_layer(s_help_title_layer));
 	scroll_layer_add_child(s_scroll_layer, text_layer_get_layer(s_help_layer));
 
   layer_add_child(window_layer, scroll_layer_get_layer(s_scroll_layer));
@@ -544,6 +635,7 @@ static void help_window_load(Window *window) {
 
 static void help_window_unload(Window *window) {
 	text_layer_destroy(s_help_layer);
+	text_layer_destroy(s_help_title_layer);
   scroll_layer_destroy(s_scroll_layer);
 }
 
