@@ -1,5 +1,5 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-29
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-31
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: None! All my original ideas are now incorporated into the app.
@@ -113,7 +113,7 @@ static void timer_show_end(void *data) {
 }
 
 static void post_turn_event(void) {
-	for (uint i = 0 ; i < NUM_ACTIONS ; ++i) {
+	for (uint i = 0 ; i < 4 ; ++i) {
 		stats[i] += randrange(1, 10); // stats increase by natural progression
 		if (stats[i] < 1) {
 			stats[i] = 1; // stats can't be less than one!
@@ -161,9 +161,9 @@ static void add_to_hist(int action, int outcome) {
 		history = (ColdWarHistory *) malloc(sizeof(ColdWarHistory));
 		hist_list_exists = true;
 	}
+	APP_LOG(APP_LOG_LEVEL_DEBUG, "Adding to history: %d, %d", action, outcome);
 	history[turn].action = action;
 	history[turn].outcome = outcome;
-	APP_LOG(APP_LOG_LEVEL_DEBUG, "Adding to history: %d, %d", action, outcome);
 }
 
 static uint8_t actionrepeats(int action) {
@@ -258,12 +258,12 @@ static void take_action(int action) {
 			break;
 		case 3:
 			randnum = rand() % 6;
-			if (stats[4] > 300 || randnum > 4 || actionrepeats(3) >= 4) {
+			if (stats[4] > 300 || randnum > 4 || actionrepeats(3) >= 5) {
 				text_layer_set_text(s_info_layer, "Your plea incites them to make more nukes.");
 				stats[1] += randrange(5, 20);
 				stats[4] += randrange(10, 30);
 				add_to_hist(3,0);
-			} else if (stats[4] > 150 || randnum > 3 || (nonukestreak >= 2 && randnum > 2)) {
+			} else if (stats[4] > 150 || randnum > 3 || (nonukestreak >= 3 && randnum > 2)) {
 				text_layer_set_text(s_info_layer, "They politefully decline your request.");
 				stats[4] += randrange(-5, 5);
 				add_to_hist(3,1);
