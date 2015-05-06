@@ -1,11 +1,17 @@
 // Cold War Simulator 2K15
-// Made by Ben Chapman-Kish from 2015-03-14 to 2015-03-31
+// Made by Ben Chapman-Kish from 2015-03-14 to 2015-05-05
 #include "pebble.h"
 // The possibilities of segfaults, memory overflows, and memory leaks are features, by the way
 // Features to add: None! All my original ideas are now incorporated into the app.
 
 #define TIMER_MS 2200
 #define FIRST_RUN_KEY 1
+	
+#ifdef PBL_PLATFORM_BASALT
+	#define TOP_LAYER_Y_OFFSET 7
+#else
+	#define TOP_LAYER_Y_OFFSET 0
+#endif
 
 typedef struct {
  char *name;
@@ -526,11 +532,13 @@ static void main_window_load(Window *window) {
 	bitmap_layer_set_bitmap(s_background_layer, s_background_bitmap);
 	layer_add_child(window_layer, bitmap_layer_get_layer(s_background_layer));
 	
-	s_info_layer = text_layer_create(GRect(5, 40, 144-5, 168-40));
+	s_info_layer = text_layer_create(GRect(5, 40+TOP_LAYER_Y_OFFSET, 144-5, 168-40-TOP_LAYER_Y_OFFSET));
+	text_layer_set_background_color(s_info_layer, GColorClear);
 	layer_add_child(window_layer, text_layer_get_layer(s_info_layer));
 	text_layer_set_text(s_info_layer, "Uh oh, it looks like you're in a cold war.");
 	
-	s_stats_layer = text_layer_create(GRect(5, 75, 144-5, 168-75));
+	s_stats_layer = text_layer_create(GRect(5, 75+TOP_LAYER_Y_OFFSET, 144-5, 168-75-TOP_LAYER_Y_OFFSET));
+	text_layer_set_background_color(s_stats_layer, GColorClear);
 	layer_add_child(window_layer, text_layer_get_layer(s_stats_layer));
 	update_stats_text();
 }
