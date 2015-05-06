@@ -8,7 +8,7 @@
 #define FIRST_RUN_KEY 1
 	
 #ifdef PBL_PLATFORM_BASALT
-	#define TOP_LAYER_Y_OFFSET 7
+	#define TOP_LAYER_Y_OFFSET 9
 #else
 	#define TOP_LAYER_Y_OFFSET 0
 #endif
@@ -250,7 +250,7 @@ static void take_action(int action) {
 				stats[4] += randrange(30, 100);
 				add_to_hist(2,2);
 			} else if (randnum < 7) {
-				text_layer_set_text(s_info_layer, "Your spies are assassinated on the job.");
+				text_layer_set_text(s_info_layer, "Your spies are assassinated.");
 				stats[2] -= randrange(10, 25);
 				stats[4] += randrange(20, 80);
 				add_to_hist(2,3);
